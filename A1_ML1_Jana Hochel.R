@@ -135,7 +135,7 @@ library(data.table)
 #set.seed(13436962)
 set.seed(13449499)
 #monte carlo simulation
-n <- c(500, 500) #sample size - 2 sample for excercise 2
+n <- c(500, 500, 500, 500, 500, 500, 500, 500, 500, 500) #sample size - 10 samples incl. 2 for excercise 2
 m <- 5000 #number of simulation iterations
 #part i) simulate predictors X
 
