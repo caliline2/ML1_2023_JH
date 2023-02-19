@@ -1,0 +1,659 @@
+---
+title: "CEU ML1 Asssigment 1"
+author: "Jana Hochel"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+#### Monte Carlo Simulation
+
+Monte Carlo simulation is a computational method that uses random sampling to model complex systems and analyze their behavior. It involves developing a model with inputs and outputs, and running multiple simulations with randomly generated input values to estimate statistical measures of the output variables treating each observation independently. It is used in finance, engineering, physics, and other fields to assess risks and uncertainties associated with different scenarios.
+
+
+```{r setup, message=FALSE, comment = NA, echo=FALSE, warning=FALSE}
+library(tidyverse)
+library(skimr)
+library(caret)
+library(kableExtra)
+library(stargazer)
+
+options(scipen = 99)  # avoid scientific notation
+options(max.print = 20)  # avoid long outputs
+options(str = strOptions(list.len = 20))  # avoid long outputs
+theme_set(theme_minimal())
+```
+
+### A) Models
+
+#### True model
+
+$$
+Y = x_1^3-3.5*x_1^2+3*x_1+ \varepsilon
+$$
+
+#### Estimation
+
+This estimate meet the expectations as Xs are expected to be approx 1 and Y 0.5 + epsilon
+```{r model, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+f_y_x <- function(x1) {
+    x1^3-3.5*x1^2+3*x1
+}
+```
+
+```{r generate-data, message=FALSE, comment = NA, warning=FALSE}
+n <- 500
+set.seed(20230206)
+
+data <- tibble(
+        x1 = runif(n, min = 0, max = 2),
+        x2 = runif(n, min = 0, max = 2),
+        x3 = runif(n, min = 0, max = 2),
+    y = f_y_x(x1) + rnorm(n,sd = 1)
+)
+kable(skim(data)%>%
+    select(-numeric.hist,-n_missing,-complete_rate,-numeric.p0))
+GGally::ggpairs(data)
+```
+
+### C) Prediction
+Monte Carlo simulation is a method of using random sampling to estimate the behavior of a system. In the context of statistical modeling, Monte Carlo simulation can be used to estimate expected values and their uncertainty.
+
+```{r estimation, message=FALSE, comment = NA, warning=FALSE, echo=FALSE}
+f_hat_x <- lm(y ~ x1, data)
+summary(f_hat_x)
+```
+
+#### All models
+
+
+```{r evaluation1, echo=TRUE, message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate1 <- list(x1 = 0.1, x2 = 0, x3 = 0)
+point_to_evaluate2 <- list(x1 = 1.1, x2 = 0, x3 = 0)
+```
+
+
+
+##### X1=0.1
+```{r estimate-simpler-model, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+f_hat_simple_x <- lm(y ~ x1+x1^2+x1^3, data)
+f_hat_simple_x
+
+f_hat_full_x <-lm(y ~ #Order 2:
+                    x1^2+
+                    x2^2+
+                    x3^2+
+                    x1*x2+
+                    x1*x3+
+                    x2*x3+
+                      #Order 3:
+                    x1^3+
+                    x2^3+
+                    x3^3+
+                    x1^2*x2+
+                    x1^2*x3+
+                    x2^2*x1+
+                    x2^2*x3+
+                    x3^2*x1+
+                    x3^2*x2+
+                    x1*x2*x3
+                    , data)
+
+list(
+    true_value = f_y_x(point_to_evaluate1$x1),
+    predicted_value_simple = as.numeric(predict(f_hat_simple_x, newdata = point_to_evaluate1)),
+    predicted_value_full = as.numeric(predict(f_hat_full_x, newdata = point_to_evaluate1))
+)
+
+```
+
+##### X1=1.1
+
+```{r estimate-simpler-model2,echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+list(
+    true_value2 = f_y_x(point_to_evaluate2$x1),
+    predicted_value_simple2 = as.numeric(predict(f_hat_simple_x, newdata = point_to_evaluate2)),
+    predicted_value_full2 = as.numeric(predict(f_hat_full_x, newdata = point_to_evaluate2))
+)
+```
+
+
+```{r calculate-sample-average}
+mean(rnorm(500))
+```
+
+### Performance
+
+```{r calculate-sample-average-mc,echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+n_sim <- 5000
+map_dbl(
+    seq(n_sim),
+    ~mean(rnorm(n))
+) |> 
+    hist(
+        main = glue::glue("Sampling distribution of the mean of {n} standard normal variables"),
+        xlab = ""
+    )
+```
+
+```{r nest-maps, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+sds <- c(0, 1)
+map(sds, function(s) {
+    map_dbl(
+        seq(n_sim),
+        ~mean(rnorm(n, sd = s))
+    )
+})
+```
+
+```{r plot-nested-maps, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+map_df(sds, function(s) {
+    tibble(
+        sigma = as.factor(s),
+        sample_avg = map_dbl(
+            seq(n_sim),
+            ~mean(rnorm(n, sd = s))
+        )
+    )
+}) |> ggplot(aes(sample_avg, fill = sigma, color = sigma)) + 
+    geom_density(alpha = 0.5) +
+    labs(
+        title = glue::glue("Sampling distribution of the mean of {n} normal variables"),
+        x = ""
+    )
+```
+
+### B) Simulation
+
+Comparing different models.
+
+```{r simulation-function, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+runSimulationStep <- function(n = 500, sd_e = 1) {
+
+    # Step 2: Estimation
+    list(
+        true = lm(y ~ x1, data),
+        simple = lm(y~x1+x1^2+x1^3, data),
+        full = lm(y ~ #Order 2:
+                    x1^2+
+                    x2^2+
+                    x3^2+
+                    x1*x2+
+                    x1*x3+
+                    x2*x3+
+                      #Order 3:
+                    x1^3+
+                    x2^3+
+                    x3^3+
+                    x1^2*x2+
+                    x1^2*x3+
+                    x2^2*x1+
+                    x2^2*x3+
+                    x3^2*x1+
+                    x3^2*x2+
+                    x1*x2*x3
+                    , data)
+    )
+}
+```
+
+```{r sample-simulation, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+estimated_models <- runSimulationStep()
+estimated_models
+```
+
+Full model expects lower x1 coefficient as it shares the relationship with x2 and x3.
+
+```{r evaluate-simulation-step, message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate <- list(x1 = 0.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate)))
+```
+
+```{r evaluate-simulation-step2,message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate2 <- list(x1 = 1.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate2)))
+```
+
+## D) Repeating steps
+
+```{r run-mc-simulation, warning=FALSE, message=FALSE, comment = NA}
+set.seed(20230206)
+
+n_sim <- 5000
+simulated_models <- map(seq(n_sim), ~runSimulationStep())
+```
+
+
+```{r check-result, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+str(simulated_models, max.level = 1)
+simulated_models[[1]]
+```
+
+```{r evaluate-at-given-point, echo=FALSE, message=FALSE, comment = NA, warning=FALSE, results=FALSE}
+predictions00 <- map_df(simulated_models, ~{
+    map(.x, ~as.numeric(predict(.x, newdata = point_to_evaluate))) |> as_tibble()
+})
+```
+
+
+```{r evaluate-simulation-results-chart, message=FALSE, comment = NA, warning=FALSE}
+pivot_longer(predictions00, cols = everything()) |>
+    ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
+```
+
+
+```{r evaluate-simulation-results-table, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+kable(pivot_longer(predictions00, cols = everything()) |>
+    group_by(name) |>
+    summarise(
+        bias = mean(value) - f_y_x(point_to_evaluate$x1),
+        var = var(value),
+        MSE = mean((value - f_y_x(point_to_evaluate$x1))^2)
+    ))
+```
+
+```{r evaluate-for-multiple-points, echo=FALSE}
+points_to_evaluate <- tibble(x1 = seq(0, 1, 0.05), x2 = 0, x3=0)
+predict(f_hat_x, newdata = points_to_evaluate)
+```
+
+```{r evaluate-simulation-results-for-multiple-points, echo=FALSE}
+predictions <- map_df(seq_along(simulated_models[1:50]), function(i) {
+    map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
+        bind_cols() |>
+        mutate(simulation_run = i, x1 = points_to_evaluate$x1)
+})
+```
+
+```{r multiple-points-evaluation-chart, echo=FALSE}
+predictions |>
+    mutate(true_value = f_y_x(x1)) |>
+    pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
+    ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
+        geom_line(alpha = 0.3) +
+        geom_line(aes(y = true_value), color = "black", linetype = "dashed") +
+        facet_wrap(~ model)
+```
+
+The true relationship is indicated by the dashed line. It is clear that the linear models have no chance of revealing the true relationship,
+
+
+### E) 10 samples
+
+```{r evaluate-simulation-results-for-multiple-points-with-different-nobs}
+nobs <- c(100, 100,100, 100, 100, 100, 100, 100, 100, 100)
+map_df(nobs, function(n) {
+    simulated_models <- map(seq(10), ~runSimulationStep(n = n))
+    map_df(seq_along(simulated_models), function(i) {
+        map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
+            bind_cols() |>
+            mutate(n = n, simulation_run = i, x1 = points_to_evaluate$x1)
+    })
+}) |>
+    mutate(true_value = f_y_x(x1)) |>
+    pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
+    ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
+        geom_line(alpha = 0.3) +
+        geom_line(aes(y = true_value), color = "black", linetype = "dashed") +
+        facet_grid(n ~ model, labeller = label_both)
+```
+
+
+
+```{r evaluator-by-MSE2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+# evaluate on multiple observations of a single dataset
+calculateMSE <- function(prediction, y_exp) {
+    mean((prediction - y_exp)^2)
+}
+```
+
+### F) Discussion
+
+The bias-variance tradeoff, underfitting, and overfitting are important concepts that relate to the performance of a Monte Carlo model.
+
+1a The bias-variance tradeoff refers to the tradeoff between how well the model fits the training data and how well it generalizes to new, unseen data. Bias refers to the error caused by simplifying assumptions made by the model, while variance refers to the error caused by the model being too sensitive to fluctuations in the training data. A model with high bias tends to underfit the data, while a model with high variance tends to overfit the data.
+
+1b The simple and true model performs almost the same as only X1 is analysed and X1 is on average 1 and thus X1^2 and X1^3 will still be approx 1. The full model seems to display a lower bias but this this is due to higher dispersion - variance. Thus, it cannot be considered a better model just because of lower bias.
+
+2a Underfitting occurs when the model is too simple and is unable to capture the complexity of the underlying data. This can lead to a high bias and poor performance both on the training data and on new data.
+
+2b The MSE is high which may be a signal of underfitting. Simple and true model display lower MSE. Thus, they would be more fit to use for prediction.
+
+3a Overfitting occurs when the model is too complex and fits the training data too closely. This can lead to a low bias but a high variance, causing the model to perform well on the training data but poorly on new data.
+
+3b As discussed earlier, the Full model displays signs of overfitting.
+
+In summary, the bias-variance tradeoff, underfitting, and overfitting are important considerations when building Monte Carlo models. Balance between bias and variance could be achieve by tuning the model complexity and regularization parameters. By finding the right balance between bias and variance, we can build models that are able to accurately capture the underlying patterns better.
+
+
+
+```{r evaluation3}
+map(estimated_models, ~calculateMSE(predict(.x), f_y_x(data$x1)))
+```
+
+
+```{r estimate-lm-with-caret2, echo=FALSE}
+estimated_models_caret <- list(
+    true = train(
+        y ~ x1, data, 
+        method = "lm",
+        trControl = trainControl(method = "none")
+    ),
+    
+    simple = train(
+        y ~ x1+x1^2+x1^3, data, 
+        method = "lm",
+        trControl = trainControl(method = "none")
+    ),
+    full = train(
+        y ~ #Order 2:
+                    x1^2+
+                    x2^2+
+                    x3^2+
+                    x1*x2+
+                    x1*x3+
+                    x2*x3+
+                      #Order 3:
+                    x1^3+
+                    x2^3+
+                    x3^3+
+                    x1^2*x2+
+                    x1^2*x3+
+                    x2^2*x1+
+                    x2^2*x3+
+                    x3^2*x1+
+                    x3^2*x2+
+                    x1*x2*x3
+                    , data, 
+        method = "lm",
+        trControl = trainControl(method = "none")
+    )
+)
+```
+
+
+```{r model-matrix2}
+expanded_data <- model.matrix(y ~ x1, data)
+head(expanded_data)
+```
+
+################################################################################
+#### Exercise 2 ################################################################
+################################################################################
+
+### A) Models
+
+```{r generate-datae2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+n <- 1000
+set.seed(20230206)
+
+data <- tibble(
+        x1 = runif(n, min = 0, max = 2),
+        x2 = runif(n, min = 0, max = 2),
+        x3 = runif(n, min = 0, max = 2),
+    y = f_y_x(x1) + rnorm(n,sd = 1)
+)
+kable(skim(data)%>%
+    select(-numeric.hist,-n_missing,-complete_rate,-numeric.p0))
+GGally::ggpairs(data)
+
+
+#Set seed for reproducibility
+set.seed(123)
+
+#Create an index vector for the samples
+n <- nrow(data)
+train_index <- sample(seq_len(n), size = round(0.5*n), replace = FALSE)
+test_index <- setdiff(seq_len(n), train_index)
+
+# Split the data into training and test samples
+
+test_data <- data[test_index, ]
+data <- data[train_index, ]
+```
+
+\newpage
+
+#### The performance
+
+```{r calculate-sample-averagee2}
+mean(rnorm(1000))
+```
+
+
+```{r calculate-sample-average-mce2,echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+n_sim <- 5000
+map_dbl(
+    seq(n_sim),
+    ~mean(rnorm(n))
+) |> 
+    hist(
+        main = glue::glue("Sampling distribution of the mean of {n} standard normal variables"),
+        xlab = ""
+    )
+```
+
+```{r nest-mapse2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+sds <- c(0, 1)
+map(sds, function(s) {
+    map_dbl(
+        seq(n_sim),
+        ~mean(rnorm(n, sd = s))
+    )
+})
+```
+
+```{r plot-nested-mapse2, message=FALSE, comment = NA, warning=FALSE}
+map_df(sds, function(s) {
+    tibble(
+        sigma = as.factor(s),
+        sample_avg = map_dbl(
+            seq(n_sim),
+            ~mean(rnorm(n, sd = s))
+        )
+    )
+}) |> ggplot(aes(sample_avg, fill = sigma, color = sigma)) + 
+    geom_density(alpha = 0.5) +
+    labs(
+        title = glue::glue("Sampling distribution of the mean of {n} normal variables"),
+        x = ""
+    )
+```
+
+```{r simulation-functione2, echo=FALSE}
+runSimulationStep <- function(n = 500, sd_e = 1) {
+    # Step 1: Simulate the data
+    #data <- tibble(
+     #   x1 = runif(n, min = 0, max = 2),
+      #  x2 = runif(n, min = 0, max = 2),
+       # x3 = runif(n, min = 0, max = 2),
+        #y = f_y_x(x1) + rnorm(n,sd = sd_e)
+    #)
+    
+    # Step 2: Estimation
+    list(
+        true = lm(y ~ x1, data),
+        simple = lm(y~x1+x1^2+x1^3, data),
+        full = lm(y ~ #Order 2:
+                    x1^2+
+                    x2^2+
+                    x3^2+
+                    x1*x2+
+                    x1*x3+
+                    x2*x3+
+                      #Order 3:
+                    x1^3+
+                    x2^3+
+                    x3^3+
+                    x1^2*x2+
+                    x1^2*x3+
+                    x2^2*x1+
+                    x2^2*x3+
+                    x3^2*x1+
+                    x3^2*x2+
+                    x1*x2*x3
+                    , data)
+    )
+}
+```
+
+```{r sample-simulatione2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+estimated_models <- runSimulationStep()
+estimated_models
+```
+
+```{r evaluate-simulation-stepe2, message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate <- list(x1 = 0.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate)))
+```
+
+```{r evaluate-simulation-step2e2,message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate2 <- list(x1 = 1.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate2)))
+```
+
+```{r run-mc-simulatione2, echo=FALSE, warning=FALSE, message=FALSE, comment = NA}
+set.seed(20230206)
+
+n_sim <- 5000
+simulated_models <- map(seq(n_sim), ~runSimulationStep())
+```
+
+
+```{r check-resulte2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+str(simulated_models, max.level = 1)
+simulated_models[[1]]
+```
+
+```{r evaluate-at-given-pointe2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+predictions00 <- map_df(simulated_models, ~{
+    map(.x, ~as.numeric(predict(.x, newdata = point_to_evaluate))) |> as_tibble()
+})
+```
+
+
+```{r evaluate-simulation-results-charte2, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+  pivot_longer(predictions00, cols = everything()) |>
+    ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
+```
+
+
+```{r evaluate-simulation-results-tablee2, message=FALSE, comment = NA, warning=FALSE, echo=FALSE}
+pivot_longer(predictions00, cols = everything()) |>
+    group_by(name) |>
+    summarise(
+        bias = mean(value) - f_y_x(point_to_evaluate$x1),
+        var = var(value),
+        MSE = mean((value - f_y_x(point_to_evaluate$x1))^2)
+    )
+```
+
+
+### C) Test sample
+
+Comparing different models.
+
+```{r simulation-functione2t}
+runSimulationStep <- function(n = 500, sd_e = 1) {
+    # Step 1: Simulate the data
+    #data <- tibble(
+     #   x1 = runif(n, min = 0, max = 2),
+      #  x2 = runif(n, min = 0, max = 2),
+       # x3 = runif(n, min = 0, max = 2),
+        #y = f_y_x(x1) + rnorm(n,sd = sd_e)
+    #)
+    
+    # Step 2: Estimation
+    list(
+        true = lm(y ~ x1, test_data),
+        simple = lm(y~x1+x1^2+x1^3, test_data),
+        full = lm(y ~ #Order 2:
+                    x1^2+
+                    x2^2+
+                    x3^2+
+                    x1*x2+
+                    x1*x3+
+                    x2*x3+
+                      #Order 3:
+                    x1^3+
+                    x2^3+
+                    x3^3+
+                    x1^2*x2+
+                    x1^2*x3+
+                    x2^2*x1+
+                    x2^2*x3+
+                    x3^2*x1+
+                    x3^2*x2+
+                    x1*x2*x3
+                    , test_data)
+    )
+}
+```
+
+```{r sample-simulatione2t, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+estimated_models <- runSimulationStep()
+estimated_models
+```
+
+```{r evaluate-simulation-stepe2t, message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate <- list(x1 = 0.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate)))
+```
+
+```{r evaluate-simulation-step2e2t,message=FALSE, comment = NA, warning=FALSE}
+point_to_evaluate2 <- list(x1 = 1.1, x2 = 0, x3=0)
+map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate2)))
+```
+
+
+```{r run-mc-simulatione2t, echo=FALSE}
+set.seed(20230206)
+
+n_sim <- 5000
+simulated_models <- map(seq(n_sim), ~runSimulationStep())
+```
+
+
+```{r check-resulte2t, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+str(simulated_models, max.level = 1)
+simulated_models[[1]]
+```
+
+```{r evaluate-at-given-pointe2t, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+predictions00 <- map_df(simulated_models, ~{
+    map(.x, ~as.numeric(predict(.x, newdata = point_to_evaluate))) |> as_tibble()
+})
+```
+
+
+```{r evaluate-simulation-results-charte2t, echo=FALSE, message=FALSE, comment = NA, warning=FALSE}
+pivot_longer(predictions00, cols = everything()) |>
+    ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
+```
+
+
+```{r evaluate-simulation-results-tablee2t, message=FALSE, comment = NA, warning=FALSE, echo=FALSE}
+kable(pivot_longer(predictions00, cols = everything()) |>
+    group_by(name) |>
+    summarise(
+        bias = mean(value) - f_y_x(point_to_evaluate$x1),
+        var = var(value),
+        MSE = mean((value - f_y_x(point_to_evaluate$x1))^2)
+    ))
+
+```
+
+
+### D) Model Ranking
+
+Full model: This model has low bias but high variance, leading to a high MSE. While it may capture more complex relationships between the variables than the other models, its high variance makes it less reliable for making predictions on new data. Therefore, it is ranked last among the three models. 
+
+Simple model: This model is almost identical to the true model and has lower bias than the full model, indicating that it captures the true relationship between the variables better. However, its MSE is higher than that of the full model, indicating slightly variance.
+
+To conclude, a model with low bias may capture the true relationship well, but if it has high variance it may overfit to the training data and perform poorly on new data. A model with low variance may perform well on new data, but if it has high bias it may underfit and not capture the true relationship. The simple model in this case seems to have a good balance between bias and variance, leading to the best overall performance.
+
+Moreover, we have abundant knowledge about the data and we know that X2 and X3 is not linked with changes in Y in any way. Thus, we may assume that Full model captures a lot of noise and it is just converging to 1.
+
+#### Acknowledgement
+
+This material has been largely inspired by Janos Divenyi's github.
