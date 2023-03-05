@@ -1,0 +1,384 @@
+---
+title: "ML1_A2_JH"
+author: "JH"
+date: "2023-03-04"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# 1.Sparse Model
+
+Fitting a sparse model using Lasso regression of Y on X1, X2, and a epsilon, for a range of lambda values between 0 and 2 whilst intercept is 0.
+
+```{r setup, include=FALSE}
+rm(list=ls())
+
+library(glmnet)
+library(tidyverse)
+library(caret)
+library(tinytex)
+
+
+options(scipen = 99)  # avoid scientific notation
+options(max.print = 20)  # avoid long outputs
+options(str = strOptions(list.len = 20))  # avoid long outputs
+theme_set(theme_minimal())
+```
+
+$$
+Y = B0+B1*x1 + B1*x2 + \varepsilon
+$$
+
+a) Generate a training sample of size n = 20 from the model. Use the training
+sample to estimate a lasso regression of Y on X1, X2 and a constant for a grid lambda values over the interval [0, 2]. As discussed above, the case lambda = 0 corresponds to the OLS estimator.
+
+
+```{r function, echo=FALSE}
+f_y_x <- function(x1) {(1*x1 + 1*x2 + eps)}
+```
+
+```{r aasignment, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+n <- 20  # set the sample size
+
+set.seed(123)  # set a random seed for reproducibility
+
+#data <- tibble(
+  x1 = runif(n, max = 1)# generate uniform[0,1] random variables
+  x2 = runif(n, max = 1)
+  eps = rnorm(n, mean = 0, sd = 2)  # generate normal errors with mean 0 and sd 2
+  Y = 1*x1 + 1*x2 + eps # generate the response variable using the model
+#)
+
+
+  
+data <- tibble(
+  x1 = x1,# generate uniform[0,1] random variables
+  x2 = x2,
+  eps = eps,  # generate normal errors with mean 0 and sd 2
+  Y = Y # generate the response variable using the model
+)
+
+
+kableExtra::kable(data)
+
+X <- cbind(rep(1, n), x1, x2)
+y <- data$Y
+#1*x1 + 1*x2 + rnorm(n, mean = 0, sd = 2)  # assign the dependent variable to a vector
+
+# Create a design matrix with a column of ones for the intercept
+
+# Fit a Lasso regression over a grid of lambda values
+lambda_seq <- seq(0, 2, length.out = 1000)
+lasso_fit <- glmnet(X, Y, alpha = 1, lambda = lambda_seq, intercept = FALSE)
+#Intercept false as Beta=0
+
+# Plot the Lasso path
+plot(lasso_fit, xvar = "lambda", label = TRUE)
+
+
+```
+
+## b) Form the prediction
+
+```{r basssignment, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# Fit the Lasso estimator with a given value of lambda
+lambda <- 0.5  # specify the value of lambda
+lasso_fit <- glmnet(X, y, alpha = 1, lambda = lambda, intercept = FALSE)  # alpha = 1 specifies Lasso penalty
+
+#lasso_fit
+
+# Extract the coefficients
+b0 <- coef(lasso_fit)["(Intercept)",]  # intercept term
+b1 <- coef(lasso_fit)["x1",]  # coefficient for X1
+b2 <- coef(lasso_fit)["x2",]  # coefficient for X2
+
+
+data <- tibble(
+  B0 = b0,
+  B1 = 1,
+  B2 = 1
+)
+
+kableExtra::kable(data)
+
+# Define the new values of X for prediction
+new_x <- c(0.5, 0.5)
+
+# Make the prediction
+prediction <- sum(new_x * c(b0, b1, b2))
+print(paste("The predicted value of Y for X1 = 0.5 and X2 = 0.5 is", prediction))
+
+
+# Define the new values of X for prediction
+new_x <- c(0.1, 0.1)
+
+# Make the prediction
+prediction <- sum(new_x * c(b0, b1, b2))
+print(paste("The predicted value of Y for X1 = 0.1 and X2 = 0.1 is", prediction))
+
+```
+ 
+
+## c) Coefficients and Lambda
+
+Simulation with 1000 sample sizes calculating the Lasso estimator's bias and plotting the coefficients of the for different values of lambda.
+
+
+```{r bias,echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+
+n <- 1000  # sample size
+p <- 2  # number of independent variables
+#x1 = runif(n, max = 1)# generate uniform[0,1] random variables
+#x2 = runif(n, max = 1)
+beta <- c(0,1,1)  # true coefficients
+sigma <- 2  # error standard deviation
+reps <- 1000  # number of simulation replications
+
+# Create a function to simulate the data and compute the bias of the Lasso estimator
+simulate_and_compute_bias <- function(lambda) {
+  # Simulate the data
+  x <- cbind(rep(1, n), x1, x2)
+  #x <- matrix(rnorm(n * p), ncol = p)  # independent variables
+  y <- 1*x1 + 1*x2 + rnorm(n, sd = sigma)  # dependent variable
+  
+  # Fit the Lasso estimator
+  lasso_fit <- glmnet(x, y, alpha = 1, lambda = lambda)
+  b0 <- coef(lasso_fit)["(Intercept)",]
+  b1 <- coef(lasso_fit)["x1",]
+  b2 <- coef(lasso_fit)["x2",]
+  # Compute the bias
+  bias_b0 <- b0 - beta[1]
+  bias_b1 <- b1 - beta[2]
+  bias_b2 <- b2 - beta[3]
+  
+  return(c(bias_b0, bias_b1, bias_b2))
+}
+
+# Compute the bias for different values of lambda
+lambda_seq <- seq(0, 2, length.out = 1000)
+
+bias_mat <- t(sapply(lambda_seq, simulate_and_compute_bias))
+
+
+
+
+# Plot the bias as a function of lambda
+plot(lambda_seq, bias_mat[, 1], type = "l", xlab = "Lambda", ylab = "Bias")
+lines(lambda_seq, bias_mat[, 2], type = "l", col = "red")
+lines(lambda_seq, bias_mat[, 3], type = "l", col = "blue")
+legend("topright", legend = c("b0", "b1", "b2"), col = c("black", "red", "blue"), lty = 1)
+
+
+```
+
+## c) Best prediction
+
+```{r estimationmsee, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# Define the true parameter values
+beta0 <- 0
+beta1 <- 1
+beta2 <- 1
+
+# Define the grid of lambda values
+lambda_seq <- seq(0, 2, length.out = 1000)
+
+# Initialize a vector to store the predicted values for each lambda
+pred <- rep(0, length(lambda_seq))
+
+# Repeat the procedure 1000 times
+for (i in 1:10) {
+  
+  # Generate the data
+  x1 <- runif(n, max = 1)
+  x2 <- runif(n, max = 1)
+  eps <- rnorm(n, mean = 0, sd = 2)
+  Y <- beta0 + beta1 * x1 + beta2 * x2 + eps
+  
+  # Create the design matrix
+  X <- cbind(rep(1, n), x1, x2)
+  
+  # Fit the Lasso estimator for each lambda value
+  for (j in 1:length(lambda_seq)) {
+    lasso_fit <- glmnet(X, Y, alpha = 1, lambda = lambda_seq[j])
+    
+    # Extract the coefficients
+    b0 <- coef(lasso_fit)["(Intercept)",]  # intercept term
+    b1 <- coef(lasso_fit)["x1",]  # coefficient for X1
+    b2 <- coef(lasso_fit)["x2",]  # coefficient for X2
+    
+    # Define the new values of X for prediction
+    new_x <- c(1, 0.5, 0.5)
+    
+    # Make the prediction
+    prediction <- sum(new_x * c(b0, b1, b2))
+    
+    # Store the prediction for this lambda value
+    pred[j] <- prediction
+  }
+}
+
+# Calculate the best possible prediction
+best_pred <- beta0 + beta1 * 0.5 + beta2 * 0.5
+
+# Find the lambda value that gives the closest prediction to the true value
+closest_pred <- lambda_seq[which.min(abs(pred - best_pred))]
+
+# Print the results
+cat("The best possible prediction is", best_pred, "\n")
+cat("The lambda value that gives the closest prediction to the true value is", closest_pred, "\n")
+
+```
+
+This is because if we have large enough pool of data error (epsilon) will be approx. 0. Intercept is also 0.
+$$
+x1*1+x2*1"=0.5+0.5=1
+$$
+The alpha estimate is consitent with our graph that it should be between 0.3 and 0.4.
+
+## d) MSE, Bias and Lambda
+
+```{r estimationmse, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# Function to simulate the data and compute bias and MSE
+simulate_and_compute_bias_mse <- function(lambda) {
+  X <- cbind(rep(1, n), x1, x2)
+  y <- X %*% beta + rnorm(n, sd = sigma)
+  lasso_fit <- glmnet(X, y, alpha = 1, lambda = lambda)
+  beta_hat <- coef(lasso_fit)[-1]
+  bias <- beta_hat - beta[-1]
+  mse <- mean((beta_hat - beta[-1])^2)
+  return(c(bias, mse))
+}
+
+# Compute bias and MSE for different lambda values
+lambda_seq <- seq(0, 2, length.out = 1000)
+bias_mse_mat <- t(sapply(lambda_seq, simulate_and_compute_bias_mse))
+
+# Plot the bias and MSE for each coefficient as a function of lambda
+plot(lambda_seq, bias_mse_mat[, 1], type = "l", xlab = "Lambda", ylab = "Bias/MSE")
+lines(lambda_seq, bias_mse_mat[, 2], col = "red")
+lines(lambda_seq, bias_mse_mat[, 3], col = "blue")
+legend("topright", legend = c("Beta1 Bias/MSE", "Beta2 Bias/MSE"), col = c("red", "blue"), lty = 1)
+
+```
+
+Beta1 and Beta2 bias display similar patterns as they have the same value and same x (approx 0.5).
+
+# 2.Dense Model
+
+## a) Load the data
+set called PCA_data.csv (posted). Designate the first n = 500 observations as the training sample and the last Nte = 500 as the test sample.
+
+```{r load, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# load data
+pca_data <- read.csv("C:/Users/Magdalenka Kolacik/Jankyna zaloha/CEU/Machine Learning/PCA_data.csv") 
+
+
+# designate training and test samples
+n <- 500
+train_data <- pca_data[1:n,]
+test_data <- pca_data[(n+1):(n+500),]
+kableExtra::kable(head(train_data))
+kableExtra::kable(head(test_data))
+
+```
+
+
+## b) Compute
+the first 10 principal component vectors and the corresponding scores Z*1 , . . . ,Z*10 for (X1,X2, . . . ,X50) using all the data (both the training and test samples)# center and scale the data
+
+```{r computing, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+train_data_scaled <- scale(train_data[,1:50])
+test_data_scaled <- scale(test_data[,1:50])
+
+# compute the principal components using SVD
+pca <- svd(train_data_scaled)
+PC <- pca$v[,1:10]
+
+
+# compute the principal component scores
+train_scores <- train_data_scaled %*% PC
+test_scores <- test_data_scaled %*% PC
+
+# Compute the corresponding scores
+# print the results
+
+print("The first 10 principal component vector")
+kableExtra::kable(head(test_scores)) %>% 
+  kableExtra::kable_styling(font_size = 7)
+
+
+
+
+```
+
+## c) Estimate regression
+an OLS regression of Y on a constant and X1, . . . ,X50 over the training sample. Estimate OLS regressions of Y on a constant and Z*1 , . . . ,Z*k over the training sample for k = 1, 5, 10.
+
+```{r estimationc, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# OLS regression of Y on X1, ..., X50 over the training sample
+ols_full <- lm(Y ~ ., data=train_data)
+
+summary(ols_full)
+# OLS regressions of Y on Z*1, ..., Z*k over the training sample for k = 1, 5, 10
+ols_pc1 <- lm(Y ~ 1 + train_scores[,1], data=train_data)
+ols_pc5 <- lm(Y ~ 1 + train_scores[,1:5], data=train_data)
+ols_pc10 <- lm(Y ~ 1 + train_scores, data=train_data)
+
+
+
+
+```
+
+## d) Use the four models
+estimated under part c) the obtain predictions for the outcomes Yi in the test sample. Compute the mean squared prediction error for the four different predictions and report these numbers. You should get results similar to those on slide 22, but there will be some differences because the whole experiment is performed only once. (The slide averages over many experiments.)
+
+
+```{r use, echo=FALSE, include=TRUE, warning=FALSE, comment=NA, message=FALSE}
+# obtain predictions for the test sample using the four models
+pred_full <- predict(ols_full, newdata=test_data)
+pred_pc1 <- predict(ols_pc1, newdata=data.frame(test_scores[,1]))
+pred_pc5 <- predict(ols_pc5, newdata=data.frame(test_scores[,1:5]))
+pred_pc10 <- predict(ols_pc10, newdata=data.frame(test_scores))
+
+# compute mean squared prediction errors
+mse_full <- mean((test_data$Y - pred_full)^2)
+mse_pc1 <- mean((test_data$Y - pred_pc1)^2)
+mse_pc5 <- mean((test_data$Y - pred_pc5)^2)
+mse_pc10 <- mean((test_data$Y - pred_pc10)^2)
+
+
+# Calculate MSE for Ntr = 75 and Ntr = 500 separately
+mse_Ntr75ols <- mean((test_data$Y[1:75] - pred_full[1:75])^2)
+mse_Ntr751<- mean((test_data$Y[1:75] - pred_pc1[1:75])^2)
+mse_Ntr755<- mean((test_data$Y[1:75] - pred_pc5[1:75])^2)
+mse_Ntr7510<- mean((test_data$Y[1:75] - pred_pc10[1:75])^2)
+
+mse_Ntr500ols <- mean((test_data$Y - pred_full)^2)
+mse_Ntr5001<- mean((test_data$Y - pred_pc1)^2)
+mse_Ntr5005<- mean((test_data$Y - pred_pc5)^2)
+mse_Ntr50010<- mean((test_data$Y - pred_pc10)^2)
+
+
+# report the results
+summm = data.frame(titles=c("OLS", "PCA k=1","PCA k=5","PCA k=10"),
+                   #first=c(mse_full,mse_pc1,mse_pc5,mse_pc10),
+                   #second=c(mse_fullm,mse_pc1m,mse_pc5m,mse_pc10m),
+                   "Ntr = 75 MSPE"=c(mse_Ntr75ols,mse_Ntr751,mse_Ntr755,mse_Ntr7510),
+                   "Ntr = 500 MSPE"=c(mse_Ntr500ols,mse_Ntr5001,mse_Ntr5005,mse_Ntr50010))
+kableExtra::kable(summm)
+
+
+
+
+
+
+```
+
+## e) Discuss
+
+We have performed a Principal Component Analysis (PCA) on the PCA dataset. This technique is used to reduce the number of dimensions. The simplified output was used for linear regression. The performance of differnet m can be assessed using
+
+In the first column (n = 75), the MSE for the full model is much larger than the MSE for OLS which indicates that it may be a better fit rather than overcomplicating.
+
+ 
